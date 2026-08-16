@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "code-guardian": {
+      "command": "python3",
+      "args": ["/path/to/code-guardian-skill/mcp-server.py"],
+      "cwd": "/path/to/code-guardian-skill"
+    }
+  }
+}
