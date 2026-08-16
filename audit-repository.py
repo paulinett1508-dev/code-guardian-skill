@@ -8,7 +8,7 @@ Uso:
   python audit-repository.py <caminho_do_repositorio> --report-dir <caminho_do_relatorio>
 
 Exemplo:
-  python audit-repository.py "D:\PROJETOS\THEUNIVERSE\theuniverse\corpos\kuiper\araujo-informatica\hospital360-v2-remote" --report-dir "D:\AUDITORIAS\hospital360-v2"
+  python audit-repository.py r"D:\PROJETOS\THEUNIVERSE\theuniverse\corpos\kuiper\araujo-informatica\hospital360-v2-remote" --report-dir r"D:\AUDITORIAS\hospital360-v2"
 
 Comportamento:
 - Não faz fetch, pull, commit, push, issue ou PR.
@@ -402,4 +402,5 @@ def main() -> int:
     return report["summary"]["status_code"]
 
 
-if __name__ == "__main__":n    sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())
