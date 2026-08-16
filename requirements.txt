@@ -1,0 +1,19 @@
+# Code Guardian Skill - Dependencias
+
+# MCP Server
+mcp>=1.0.0
+
+# Utilitarios
+pathlib2>=2.3.7
+
+# Opcional: para analise mais avancada
+# tree-sitter>=0.21.0
+# tree-sitter-python>=0.21.0
+# tree-sitter-javascript>=0.21.0
+# tree-sitter-typescript>=0.21.0
+
+# Opcional: para scan de dependencias
+# safety>=3.0.0
+
+# Opcional: para analise de CSS
+# cssutils>=2.9.0
