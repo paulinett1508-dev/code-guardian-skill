@@ -2,18 +2,21 @@
 """
 Code Guardian — Finalize Fix
 
-Finaliza correcoes, preenche .env.example e faz commit
+Preenche .env.example/.env.local com placeholders e mostra o git status.
+Commit só acontece com --commit explícito (AUDIT_SCOPE.md: nenhum commit
+sem confirmação do usuário). Nunca faz push.
 
 Execute:
-  python finalize-fix.py C:\AMILCAR-CONSTELATTION\estrelas\sbrgestao
+  python finalize-fix.py <repo> [--commit]
 """
 
+import argparse
 import subprocess
 import sys
 from pathlib import Path
 
 
-def main(repo_path: str):
+def main(repo_path: str, do_commit: bool):
     repo = Path(repo_path)
     
     if not repo.exists():
@@ -70,72 +73,72 @@ def main(repo_path: str):
     else:
         print("✅ .env.local já existe")
     
-    # 3. Git add
-    print("\n\n📦 Git add...")
-    print("-"*70)
-    
-    subprocess.run(["git", "add", "."], cwd=repo)
-    print("✅ Arquivos adicionados ao staging")
-    
-    # 4. Git status
+    # 3. Git status (sempre mostrado, nunca staged automaticamente)
     print("\n\n📊 Git status:")
     print("-"*70)
-    
+
     result = subprocess.run(
         ["git", "status", "--short"],
         cwd=repo,
         capture_output=True,
         text=True,
         encoding="utf-8",
-        creationflags=subprocess.CREATE_NO_WINDOW
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     )
-    
+
     if result.stdout.strip():
         print(result.stdout)
     else:
         print("Nenhuma mudança pendente")
-    
-    # 5. Commit
-    print("\n\n💾 Commit...")
-    print("-"*70)
-    
-    result = subprocess.run(
-        ["git", "commit", "-m", "fix: remove hardcoded credentials (security)"],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        creationflags=subprocess.CREATE_NO_WINDOW
-    )
-    
-    if result.returncode == 0:
-        print(f"✅ Commit realizado:\n   {result.stdout.strip()}")
+
+    # 4. Commit — só com --commit explícito (AUDIT_SCOPE.md: nada de commit
+    # automático sem confirmação do usuário)
+    if not do_commit:
+        print("\n\n💾 Commit — PULADO (rode com --commit para revisar e commitar)")
+        print("-"*70)
+        print("Revise o `git status`/`git diff` acima antes de commitar manualmente.")
     else:
-        if "nothing to commit" in result.stdout.lower() or "nothing to commit" in result.stderr.lower():
-            print("⚠️  Nenhuma mudança para commit (já´´ está limpo)")
+        print("\n\n💾 Commit...")
+        print("-"*70)
+
+        subprocess.run(["git", "add", "."], cwd=repo)
+
+        result = subprocess.run(
+            ["git", "commit", "-m", "fix: remove hardcoded credentials (security)"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        )
+
+        if result.returncode == 0:
+            print(f"✅ Commit realizado:\n   {result.stdout.strip()}")
         else:
-            print(f"⚠️  Erro no commit: {result.stderr[:200]}")
-    
+            if "nothing to commit" in result.stdout.lower() or "nothing to commit" in result.stderr.lower():
+                print("⚠️  Nenhuma mudança para commit (já está limpo)")
+            else:
+                print(f"⚠️  Erro no commit: {result.stderr[:200]}")
+
     # 6. Resumo
     print("\n\n" + "="*70)
     print("✅ FINALIZACAO CONCLUÍ´`DA!")
     print("="*70)
     print("\n📝 Resumo:")
-    print("   - Hardcoded credentials removidos")
-    print("   - Syntax Node.js corrigida")
     print("   - .env.example preenchido")
-    print("   - .env.local criado (nao commit!)")
-    print("   - Commit realizado")
+    print("   - .env.local criado (não commit!)")
+    print(f"   - Commit: {'realizado' if do_commit else 'PULADO (sem --commit)'}")
     print("\n⚠️  IMPORTANTE:")
     print("   1. Preencha .env.local com valores reais")
     print("   2. Teste os apps")
-    print("   3. Faca git push quando estiver pronto")
+    print("   3. git push é sempre manual — este script nunca dá push")
     print("="*70)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Uso: python finalize-fix.py <caminho-do-repo>")
-        sys.exit(1)
-    
-    main(sys.argv[1])
+    parser = argparse.ArgumentParser()
+    parser.add_argument("repo_path")
+    parser.add_argument("--commit", action="store_true", help="Faz git add + commit ao final. Sem essa flag, só mostra o status.")
+    args = parser.parse_args()
+
+    main(args.repo_path, args.commit)

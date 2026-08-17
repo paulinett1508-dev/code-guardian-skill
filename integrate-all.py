@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+"""
+Code Guardian — Integrate All
+
+Por padrão só faz pull + testes e reporta o estado — nunca dá push sem
+--push explícito, e falha de teste real interrompe o fluxo (não é mais
+tratada como "continuando"). Ver AUDIT_SCOPE.md: nenhum push sem
+confirmação explícita do usuário.
+"""
+import argparse
 import subprocess
 import sys
 from pathlib import Path
@@ -40,11 +49,13 @@ def run_tests(repo_path: Path):
     print("📦 Executando npm test...")
     result = subprocess.run(["npm", "test"], cwd=repo_path, capture_output=True, text=True, encoding="utf-8", creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
     if result.returncode != 0:
-        if "Missing script" in result.stderr or "npm ERR" in result.stderr:
+        if "Missing script" in result.stderr or "npm ERR! missing script" in result.stderr:
             print("⚠️  Testes não configurados - pulando (OK)")
             return True
-        print(f"⚠️  Testes falharam (mas continuando)...")
-        return True
+        print("❌ Testes falharam:")
+        print(result.stdout[-2000:])
+        print(result.stderr[-2000:])
+        return False
     print(result.stdout)
     print("✅ Testes passaram!")
     return True
@@ -80,16 +91,18 @@ def git_push(repo_path: Path):
     print("✅ Push concluí·´do!")
     return True
 
-def main(repo_path: str):
+def main(repo_path: str, do_push: bool):
     repo = Path(repo_path)
     if not repo.exists():
         print(f"❌ ERRO: Repo não encontrado em {repo}")
         return
     print("🚀 Code Guardian — Integrate All")
+    print(f"Modo: {'com push' if do_push else 'SEM push (default) — rode com --push para empurrar'}")
     print("="*70)
     print(f"\n📁 Repositô´´´rio: {repo}")
     print("="*70)
-    steps = [("git_pull", lambda: git_pull(repo)), ("fill_env_local", lambda: fill_env_local(repo)), ("run_tests", lambda: run_tests(repo)), ("git_push", lambda: git_push(repo))]
+
+    steps = [("git_pull", lambda: git_pull(repo)), ("fill_env_local", lambda: fill_env_local(repo)), ("run_tests", lambda: run_tests(repo))]
     results = {}
     for step_name, step_func in steps:
         try:
@@ -97,6 +110,17 @@ def main(repo_path: str):
         except Exception as e:
             print(f"\n❌ ERRO em {step_name}: {e}")
             results[step_name] = False
+
+    tests_ok = results.get("run_tests", False)
+    if do_push:
+        if tests_ok:
+            results["git_push"] = git_push(repo)
+        else:
+            print("\n⚠️  Push cancelado: testes falharam. Corrija antes de empurrar.")
+            results["git_push"] = False
+    else:
+        print("\nℹ️  --push não foi passado: nenhum commit/push será feito.")
+
     print("\n\n" + "="*70)
     print("📊 RESUMO DA INTEGRACAO")
     print("="*70)
@@ -105,19 +129,17 @@ def main(repo_path: str):
         print(f"{emoji} {step_name}: {'PASS' if passed else 'FAIL'}")
     all_passed = all(results.values())
     print("\n" + "="*70)
-    if all_passed:
-        print("✅ TODOS OS PASSOS CONCLUÍ·`DOS!")
-        print("\n🎉 Seu repo está:")
-        print("   - Atualizado com o remote")
-        print("   - .env.local preenchido")
-        print("   - Testes rodados (ou pulados)")
-        print("   - Push realizado")
+    if all_passed and do_push:
+        print("✅ TODOS OS PASSOS CONCLUÍDOS, PUSH REALIZADO!")
+    elif all_passed:
+        print("✅ Pull e testes OK. Revise e rode com --push quando confirmar.")
     else:
         print("⚠️  ALGUNS PASSOS FALHARAM!")
     print("="*70)
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Uso: python integrate-all.py <caminho-do-repo>")
-        sys.exit(1)
-    main(sys.argv[1])
+    parser = argparse.ArgumentParser()
+    parser.add_argument("repo_path")
+    parser.add_argument("--push", action="store_true", help="Faz git push origin main ao final, só se os testes passarem. Sem essa flag, nunca dá push.")
+    args = parser.parse_args()
+    main(args.repo_path, args.push)

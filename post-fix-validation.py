@@ -4,29 +4,59 @@ import subprocess
 import sys
 from pathlib import Path
 
+TEST_PATH_MARKERS = ("/test/", "/tests/", "/__tests__/", "/spec/", "/fixtures/")
+TEST_FILENAME_MARKERS = (".test.", ".spec.", "factories.", "env-setup.", "seed.")
+
+
+def is_test_fixture(file_path: Path) -> bool:
+    posix = file_path.as_posix().lower()
+    if any(marker in posix for marker in TEST_PATH_MARKERS):
+        return True
+    return any(marker in file_path.name.lower() for marker in TEST_FILENAME_MARKERS)
+
+
+ASSIGNMENT_RE = re.compile(r'\b([A-Za-z_][A-Za-z0-9_]*)\s*=\s*["\']([^"\']+)["\']')
+KEYWORDS_BY_LABEL = [
+    (("password", "passwd", "pwd", "senha"), "Senha hardcoded"),
+    (("api_key", "apikey", "secret_key"), "API Key hardcoded"),
+    (("token",), "Token hardcoded"),
+]
+
+
+def classify(var_name: str):
+    lowered = var_name.lower()
+    for keywords, label in KEYWORDS_BY_LABEL:
+        if any(k in lowered for k in keywords):
+            return label
+    return None
+
+
 def validate_no_hardcoded_creds(repo_path: Path):
-    patterns = [
-        (r'(?i)(password|passwd|pwd|senha)\s*=\s*["\'][^"\']+["\']', "Senha hardcoded"),
-        (r'(?i)(api_key|apikey|api-key|secret_key)\s*=\s*["\'][^"\']+["\']', "API Key hardcoded"),
-        (r'(?i)(token|auth_token|access_token)\s*=\s*["\'][^"\']+["\']', "Token hardcoded"),
-    ]
     issues = []
+    fixtures_skipped = 0
     for ext in ["*.ts", "*.js", "*.py", "*.json"]:
         for file_path in repo_path.rglob(ext):
             if any(d in str(file_path) for d in ["node_modules", ".git", "venv", "dist", "build", "diagnostico"]):
+                continue
+            if is_test_fixture(file_path):
+                fixtures_skipped += 1
                 continue
             try:
                 content = file_path.read_text(encoding="utf-8", errors="ignore")
             except:
                 continue
-            for pattern, description in patterns:
-                matches = re.finditer(pattern, content)
-                for match in matches:
-                    if "process.env" in match.group(0) or "os.environ" in match.group(0):
-                        continue
-                    if "placeholder" in match.group(0).lower() or "test_" in match.group(0).lower():
-                        continue
-                    issues.append({"file": str(file_path.relative_to(repo_path)), "type": description, "code": match.group(0)[:80]})
+            for match in re.finditer(ASSIGNMENT_RE, content):
+                var_name = match.group(1)
+                label = classify(var_name)
+                if label is None:
+                    continue
+                if "process.env" in match.group(0) or "os.environ" in match.group(0):
+                    continue
+                if "placeholder" in match.group(0).lower() or "test_" in match.group(0).lower():
+                    continue
+                issues.append({"file": str(file_path.relative_to(repo_path)), "type": label, "code": match.group(0)[:80]})
+    if fixtures_skipped:
+        print(f"ℹ️  {fixtures_skipped} arquivo(s) de fixture de teste ignorado(s) (não são credencial real)")
     if issues:
         print(f"❌ {len(issues)} hardcoded credential(s) encontrada(s):")
         for issue in issues[:10]:
@@ -37,8 +67,21 @@ def validate_no_hardcoded_creds(repo_path: Path):
         print("✅ Nenhuma hardcoded credential encontrada!")
         return True
 
-def validate_syntax_nodejs(repo_path: Path):
+
+def validate_cross_language_syntax(repo_path: Path):
+    """Detecta sintaxe de uma linguagem vazada para outra (ex.: process.env
+    dentro de .py, ou os.environ/`.get(` estilo Python dentro de .ts/.js)."""
     issues = []
+    for file_path in repo_path.rglob("*.py"):
+        if any(d in str(file_path) for d in ["node_modules", ".git", "venv", "dist", "build", "diagnostico"]):
+            continue
+        try:
+            content = file_path.read_text(encoding="utf-8", errors="ignore")
+        except:
+            continue
+        if re.search(r"process\.env", content):
+            issues.append(f"{file_path.relative_to(repo_path)} — sintaxe JS (process.env) em arquivo Python")
+
     for ext in ["*.ts", "*.js"]:
         for file_path in repo_path.rglob(ext):
             if any(d in str(file_path) for d in ["node_modules", ".git", "venv", "dist", "build", "diagnostico"]):
@@ -47,15 +90,16 @@ def validate_syntax_nodejs(repo_path: Path):
                 content = file_path.read_text(encoding="utf-8", errors="ignore")
             except:
                 continue
-            if re.search(r'process\.env\.get\(', content):
-                issues.append(str(file_path.relative_to(repo_path)))
+            if re.search(r"process\.env\.get\(", content) or re.search(r"os\.environ", content):
+                issues.append(f"{file_path.relative_to(repo_path)} — sintaxe Python em arquivo Node.js")
+
     if issues:
-        print(f"❌ {len(issues)} arquivo(s) com syntax Python em Node.js:")
+        print(f"❌ {len(issues)} arquivo(s) com sintaxe de outra linguagem:")
         for issue in issues[:10]:
             print(f"   🔴 {issue}")
         return False
     else:
-        print("✅ Syntax Node.js correta em todos os arquivos!")
+        print("✅ Nenhuma contaminação de sintaxe entre linguagens!")
         return True
 
 def validate_env_files(repo_path: Path):
@@ -82,7 +126,7 @@ def validate_env_files(repo_path: Path):
     return True
 
 def validate_git_status(repo_path: Path):
-    result = subprocess.run(["git", "status", "--short"], cwd=repo_path, capture_output=True, text=True, encoding="utf-8", creationflags=subprocess.CREATE_NO_WINDOW)
+    result = subprocess.run(["git", "status", "--short"], cwd=repo_path, capture_output=True, text=True, encoding="utf-8", creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
     if result.stdout.strip():
         lines = result.stdout.strip().split("\n")
         print(f"📊 {len(lines)} arquivo(s) modificados/novos:")
@@ -92,7 +136,7 @@ def validate_git_status(repo_path: Path):
             print(f"   ... e mais {len(lines) - 10}")
     else:
         print("✅ Working tree limpo")
-    result = subprocess.run(["git", "rev-list", "--left-right", "--count", "HEAD...origin/HEAD"], cwd=repo_path, capture_output=True, text=True, encoding="utf-8", creationflags=subprocess.CREATE_NO_WINDOW)
+    result = subprocess.run(["git", "rev-list", "--left-right", "--count", "HEAD...origin/HEAD"], cwd=repo_path, capture_output=True, text=True, encoding="utf-8", creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
     if result.stdout.strip():
         parts = result.stdout.strip().split()
         if len(parts) == 2:
@@ -146,7 +190,7 @@ def main(repo_path: str):
     print("="*70)
     results = {}
     results["hardcoded_creds"] = validate_no_hardcoded_creds(repo)
-    results["syntax_nodejs"] = validate_syntax_nodejs(repo)
+    results["cross_language_syntax"] = validate_cross_language_syntax(repo)
     results["env_files"] = validate_env_files(repo)
     results["git_status"] = validate_git_status(repo)
     results["quick_security"] = validate_quick_security(repo)

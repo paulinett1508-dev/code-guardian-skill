@@ -205,6 +205,26 @@ A skill gera:
 
 ---
 
+## 🩹 Scripts de correção assistida (`fix-*.py`, `finalize-fix.py`, `integrate-all.py`)
+
+Esses scripts *escrevem* no repo analisado — diferente dos `analyze-*`/MCP,
+que só leem. Seguem os princípios do `AUDIT_SCOPE.md` (não destrutivo por
+padrão, sem commit/push sem confirmação explícita):
+
+| Script | Comportamento padrão | Flag pra agir de verdade |
+|---|---|---|
+| `fix-hardcoded-creds.py <repo> <arquivos...>` | Dry-run: mostra o diff proposto, não escreve nada. Detecta a linguagem do arquivo (Python → `os.environ.get`, TS/JS → `process.env`) e **ignora fixtures de teste** (`test/`, `factories.*`, `env-setup.*`, `*.test.*`, `*.spec.*`) — constante sintética de teste não é credencial vazada. | `--apply` |
+| `finalize-fix.py <repo>` | Preenche `.env.example`/`.env.local` com placeholders, mostra `git status` | `--commit` |
+| `integrate-all.py <repo>` | `git pull` + testes reais (falha de teste **interrompe**, não é mais engolida) | `--push` (só push se os testes passarem) |
+| `post-fix-validation.py <repo>` | Valida sem escrever nada: credencial hardcoded (ignorando fixtures), contaminação de sintaxe entre linguagens (`.py` com `process.env`, `.ts/.js` com `os.environ`), estado do `.env`/git | — (só leitura) |
+
+**Nunca** rode esses scripts direto contra `main` sem revisar o diff/diagnóstico
+primeiro — é exatamente o que causou CI vermelho por ~22h no sbrgestao em
+16/08/2026 (fixture de teste tratada como segredo real + sintaxe de uma
+linguagem injetada em arquivo de outra).
+
+---
+
 ## 📁 Estrutura do Projeto
 
 ```
